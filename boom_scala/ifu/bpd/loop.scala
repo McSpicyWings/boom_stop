@@ -25,7 +25,8 @@ class LoopBranchPredictorBank(implicit p: Parameters) extends BranchPredictorBan
 
 
   class LoopMeta extends Bundle {
-    val s_cnt   = UInt(10.W)
+    val s_cnt         = UInt(10.W)
+    val loop_overrode = Bool()
   }
 
   class LoopEntry extends Bundle {
@@ -54,6 +55,11 @@ class LoopBranchPredictorBank(implicit p: Parameters) extends BranchPredictorBan
       val update_idx   = Input(UInt())
       val update_resolve_dir = Input(Bool())
       val update_meta  = Input(new LoopMeta)
+
+      val f3_overrode        = Output(Bool())
+      val perf_pcnt_mod      = Output(Bool())
+      val perf_conf_degrade  = Output(Bool())
+      val perf_override_misp = Output(Bool())
     })
 
     val doing_reset = RegInit(true.B)
@@ -77,10 +83,14 @@ class LoopBranchPredictorBank(implicit p: Parameters) extends BranchPredictorBan
 
     io.f3_pred := io.f3_pred_in
     io.f3_meta.s_cnt := f3_scnt
+    io.f3_meta.loop_overrode := false.B
+    io.f3_overrode := false.B
 
     when (f3_entry.tag === f3_tag) {
       when (f3_scnt === f3_entry.p_cnt && f3_entry.conf === 7.U) {
         io.f3_pred := !io.f3_pred_in
+        io.f3_meta.loop_overrode := true.B
+        io.f3_overrode := true.B
       }
     }
 
@@ -174,7 +184,17 @@ class LoopBranchPredictorBank(implicit p: Parameters) extends BranchPredictorBan
 
     when (doing_reset) {
       entries(reset_idx) := (0.U).asTypeOf(new LoopEntry)
-   }
+    }
+
+    //PerfCounterSupport: update-time perf signals
+    io.perf_override_misp := io.update_mispredict && !doing_reset && io.update_meta.loop_overrode
+    io.perf_conf_degrade  := io.update_mispredict && !doing_reset && entry.conf === 7.U && tag_match
+    io.perf_pcnt_mod      := io.update_mispredict && !doing_reset && (
+      (entry.conf =/= 0.U && tag_match && !ctr_match)          ||
+      (entry.conf =/= 0.U && !tag_match && entry.age === 0.U)  ||
+      (entry.conf === 0.U && tag_match && !ctr_match)           ||
+      (entry.conf === 0.U && !tag_match)
+    )
 
   }
 
@@ -208,6 +228,12 @@ class LoopBranchPredictorBank(implicit p: Parameters) extends BranchPredictorBan
 
     f3_meta(w) := columns(w).io.f3_meta
   }
+
+  //PerfCounterSupport: aggregate LOOP perf from columns
+  io.perf.loop_override_cnt  := PopCount(VecInit(columns.map(_.io.f3_overrode)).asUInt)
+  io.perf.loop_override_misp := columns.map(_.io.perf_override_misp).reduce(_ || _)
+  io.perf.loop_pcnt_modified := columns.map(_.io.perf_pcnt_mod).reduce(_ || _)
+  io.perf.loop_conf_degraded := columns.map(_.io.perf_conf_degrade).reduce(_ || _)
 
   io.f3_meta := f3_meta.asUInt
 

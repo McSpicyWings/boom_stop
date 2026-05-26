@@ -618,6 +618,22 @@ class BoomCore(usingTrace: Boolean)(implicit p: Parameters) extends BoomModule
     event_counters.io.event_signals(60) :=  Mux(fetch_pagefault, 1.U, 0.U)  //fetch_pagefault
     event_counters.io.event_signals(61) :=  Mux(mini_exception, 1.U, 0.U)  //mini_exception
     event_counters.io.event_signals(62) :=  Mux(rob.io.commit.rollback, 1.U, 0.U)  //rollback_cycles
+
+    //PerfCounterSupport: TAGE/LOOP predictor perf events (63-76)
+    event_counters.io.event_signals(63) :=  io.ifu.bpd_perf.tage_any_hit                                  //tage any-table hit
+    event_counters.io.event_signals(64) :=  io.ifu.bpd_perf.tage_provider_t0                              //tage provider=t0 (hist=2)
+    event_counters.io.event_signals(65) :=  io.ifu.bpd_perf.tage_provider_t1                              //tage provider=t1 (hist=4)
+    event_counters.io.event_signals(66) :=  io.ifu.bpd_perf.tage_provider_t2                              //tage provider=t2 (hist=8)
+    event_counters.io.event_signals(67) :=  io.ifu.bpd_perf.tage_provider_t3                              //tage provider=t3 (hist=16)
+    event_counters.io.event_signals(68) :=  io.ifu.bpd_perf.tage_provider_t4                              //tage provider=t4 (hist=32)
+    event_counters.io.event_signals(69) :=  io.ifu.bpd_perf.tage_provider_t5                              //tage provider=t5 (hist=64)
+    event_counters.io.event_signals(70) :=  Mux(io.ifu.bpd_perf.tage_alloc_attempt, 1.U, 0.U)             //tage alloc attempts
+    event_counters.io.event_signals(71) :=  Mux(io.ifu.bpd_perf.tage_alloc_success, 1.U, 0.U)             //tage alloc success
+    event_counters.io.event_signals(72) :=  Mux(io.ifu.bpd_perf.tage_alloc_fail,    1.U, 0.U)             //tage alloc fail
+    event_counters.io.event_signals(73) :=  io.ifu.bpd_perf.loop_override_cnt                             //loop high-conf override count
+    event_counters.io.event_signals(74) :=  Mux(io.ifu.bpd_perf.loop_override_misp, 1.U, 0.U)             //loop override mispredict
+    event_counters.io.event_signals(75) :=  Mux(io.ifu.bpd_perf.loop_pcnt_modified, 1.U, 0.U)             //loop p_cnt modified
+    event_counters.io.event_signals(76) :=  Mux(io.ifu.bpd_perf.loop_conf_degraded, 1.U, 0.U)             //loop conf=7 degraded
   }
   
 

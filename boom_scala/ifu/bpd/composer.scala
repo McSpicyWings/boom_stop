@@ -35,6 +35,21 @@ class ComposedBranchPredictorBank(implicit p: Parameters) extends BranchPredicto
   require(meta_sz < bpdMaxMetaLength)
   io.f3_meta := metas
 
+  //PerfCounterSupport: aggregate perf from all sub-predictor components
+  io.perf.tage_any_hit       := components.map(_.io.perf.tage_any_hit).reduce(_|_)
+  io.perf.tage_provider_t0   := components.map(_.io.perf.tage_provider_t0).reduce(_|_)
+  io.perf.tage_provider_t1   := components.map(_.io.perf.tage_provider_t1).reduce(_|_)
+  io.perf.tage_provider_t2   := components.map(_.io.perf.tage_provider_t2).reduce(_|_)
+  io.perf.tage_provider_t3   := components.map(_.io.perf.tage_provider_t3).reduce(_|_)
+  io.perf.tage_provider_t4   := components.map(_.io.perf.tage_provider_t4).reduce(_|_)
+  io.perf.tage_provider_t5   := components.map(_.io.perf.tage_provider_t5).reduce(_|_)
+  io.perf.tage_alloc_attempt := components.map(_.io.perf.tage_alloc_attempt).reduce(_||_)
+  io.perf.tage_alloc_success := components.map(_.io.perf.tage_alloc_success).reduce(_||_)
+  io.perf.tage_alloc_fail    := components.map(_.io.perf.tage_alloc_fail).reduce(_||_)
+  io.perf.loop_override_cnt  := components.map(_.io.perf.loop_override_cnt).reduce(_|_)
+  io.perf.loop_override_misp := components.map(_.io.perf.loop_override_misp).reduce(_||_)
+  io.perf.loop_pcnt_modified := components.map(_.io.perf.loop_pcnt_modified).reduce(_||_)
+  io.perf.loop_conf_degraded := components.map(_.io.perf.loop_conf_degraded).reduce(_||_)
 
   var update_meta = io.update.bits.meta
   for (c <- components.reverse) {

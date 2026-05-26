@@ -13,6 +13,23 @@ import boom.util.{BoomCoreStringPrefix}
 
 
 
+class BpdPerfBundle(implicit p: Parameters) extends BoomBundle()(p) {
+  val tage_any_hit       = UInt(4.W)
+  val tage_provider_t0   = UInt(4.W)
+  val tage_provider_t1   = UInt(4.W)
+  val tage_provider_t2   = UInt(4.W)
+  val tage_provider_t3   = UInt(4.W)
+  val tage_provider_t4   = UInt(4.W)
+  val tage_provider_t5   = UInt(4.W)
+  val tage_alloc_attempt = Bool()
+  val tage_alloc_success = Bool()
+  val tage_alloc_fail    = Bool()
+  val loop_override_cnt  = UInt(4.W)
+  val loop_override_misp = Bool()
+  val loop_pcnt_modified = Bool()
+  val loop_conf_degraded = Bool()
+}
+
 // A branch prediction for a single instruction
 class BranchPrediction(implicit p: Parameters) extends BoomBundle()(p)
 {
@@ -154,10 +171,13 @@ abstract class BranchPredictorBank(implicit p: Parameters) extends BoomModule()(
     val f3_fire = Input(Bool())
 
     val update = Input(Valid(new BranchPredictionBankUpdate))
+
+    val perf = Output(new BpdPerfBundle)
   })
   io.resp := io.resp_in(0)
 
   io.f3_meta := 0.U
+  io.perf := 0.U.asTypeOf(new BpdPerfBundle)
 
   val s0_idx       = fetchIdx(io.f0_pc)
   val s1_idx       = RegNext(s0_idx)
@@ -209,6 +229,8 @@ class BranchPredictor(implicit p: Parameters) extends BoomModule()(p)
 
     // Update
     val update = Input(Valid(new BranchPredictionUpdate))
+
+    val perf = Output(new BpdPerfBundle)
   })
 
   var total_memsize = 0
@@ -468,6 +490,22 @@ class BranchPredictor(implicit p: Parameters) extends BoomModule()(p)
       assert(io.update.bits.br_mask(io.update.bits.cfi_idx.bits))
     }
   }
+
+  //PerfCounterSupport: aggregate BPD perf signals from banked predictors
+  io.perf.tage_any_hit       := banked_predictors.map(_.io.perf.tage_any_hit).reduce(_|_)
+  io.perf.tage_provider_t0   := banked_predictors.map(_.io.perf.tage_provider_t0).reduce(_|_)
+  io.perf.tage_provider_t1   := banked_predictors.map(_.io.perf.tage_provider_t1).reduce(_|_)
+  io.perf.tage_provider_t2   := banked_predictors.map(_.io.perf.tage_provider_t2).reduce(_|_)
+  io.perf.tage_provider_t3   := banked_predictors.map(_.io.perf.tage_provider_t3).reduce(_|_)
+  io.perf.tage_provider_t4   := banked_predictors.map(_.io.perf.tage_provider_t4).reduce(_|_)
+  io.perf.tage_provider_t5   := banked_predictors.map(_.io.perf.tage_provider_t5).reduce(_|_)
+  io.perf.tage_alloc_attempt := banked_predictors.map(_.io.perf.tage_alloc_attempt).reduce(_||_)
+  io.perf.tage_alloc_success := banked_predictors.map(_.io.perf.tage_alloc_success).reduce(_||_)
+  io.perf.tage_alloc_fail    := banked_predictors.map(_.io.perf.tage_alloc_fail).reduce(_||_)
+  io.perf.loop_override_cnt  := banked_predictors.map(_.io.perf.loop_override_cnt).reduce(_|_)
+  io.perf.loop_override_misp := banked_predictors.map(_.io.perf.loop_override_misp).reduce(_||_)
+  io.perf.loop_pcnt_modified := banked_predictors.map(_.io.perf.loop_pcnt_modified).reduce(_||_)
+  io.perf.loop_conf_degraded := banked_predictors.map(_.io.perf.loop_conf_degraded).reduce(_||_)
 }
 
 class NullBranchPredictorBank(implicit p: Parameters) extends BranchPredictorBank()(p) {

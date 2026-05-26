@@ -296,7 +296,8 @@ class BoomFrontendIO(implicit p: Parameters) extends BoomBundle
   val bpsrc_f2 = Input(Bool())
   val bpsrc_f3 = Input(Bool())
   val bpsrc_core = Input(Bool())
-  
+  val bpd_perf = Input(new BpdPerfBundle)
+
 }
 
 /**
@@ -375,6 +376,7 @@ class BoomFrontendModule(outer: BoomFrontend) extends LazyModuleImp(outer)
   io.cpu.bpsrc_f2 := s0_valid && (s0_tsrc === BSRC_2)
   io.cpu.bpsrc_f3 := s0_valid && (s0_tsrc === BSRC_3)
   io.cpu.bpsrc_core := s0_valid && (s0_tsrc === BSRC_C)
+  io.cpu.bpd_perf := bpd.io.perf
 
 
   when (RegNext(reset.asBool) && !reset.asBool) {

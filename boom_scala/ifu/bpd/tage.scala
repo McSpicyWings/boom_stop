@@ -355,6 +355,23 @@ class TageBranchPredictorBank(params: BoomTageParams = BoomTageParams())(implici
   }
 
 
+  //PerfCounterSupport: TAGE perf signals
+  io.perf.tage_any_hit     := PopCount(VecInit((0 until bankWidth).map(w => f3_meta.provider(w).valid)).asUInt)
+  io.perf.tage_provider_t0 := PopCount(VecInit((0 until bankWidth).map(w => f3_meta.provider(w).valid && f3_meta.provider(w).bits === 0.U)).asUInt)
+  io.perf.tage_provider_t1 := PopCount(VecInit((0 until bankWidth).map(w => f3_meta.provider(w).valid && f3_meta.provider(w).bits === 1.U)).asUInt)
+  io.perf.tage_provider_t2 := PopCount(VecInit((0 until bankWidth).map(w => f3_meta.provider(w).valid && f3_meta.provider(w).bits === 2.U)).asUInt)
+  io.perf.tage_provider_t3 := PopCount(VecInit((0 until bankWidth).map(w => f3_meta.provider(w).valid && f3_meta.provider(w).bits === 3.U)).asUInt)
+  io.perf.tage_provider_t4 := PopCount(VecInit((0 until bankWidth).map(w => f3_meta.provider(w).valid && f3_meta.provider(w).bits === 4.U)).asUInt)
+  io.perf.tage_provider_t5 := PopCount(VecInit((0 until bankWidth).map(w => f3_meta.provider(w).valid && f3_meta.provider(w).bits === 5.U)).asUInt)
+
+  val tage_alloc_attempt = s1_update.valid && s1_update.bits.is_commit_update &&
+                           s1_update.bits.cfi_mispredicted && s1_update.bits.cfi_idx.valid
+  val tage_alloc_success = tage_alloc_attempt && s1_update_meta.allocate(s1_update.bits.cfi_idx.bits).valid
+  val tage_alloc_fail    = tage_alloc_attempt && !s1_update_meta.allocate(s1_update.bits.cfi_idx.bits).valid
+  io.perf.tage_alloc_attempt := tage_alloc_attempt
+  io.perf.tage_alloc_success := tage_alloc_success
+  io.perf.tage_alloc_fail    := tage_alloc_fail
+
   //io.f3_meta := Cat(f3_meta.asUInt, micro.io.f3_meta(micro.metaSz-1,0), base.io.f3_meta(base.metaSz-1, 0))
   io.f3_meta := f3_meta.asUInt
 }

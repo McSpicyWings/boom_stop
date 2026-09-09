@@ -21,7 +21,9 @@ void event_sample_process(uint64_t sampletimes, uint64_t exitpc)
     ReadCounter16(&hpcounters[16], 16);
     ReadCounter16(&hpcounters[32], 32);
     ReadCounter16(&hpcounters[48], 48);
-	for(int n=0;n<64;n++){
+	// Original full dump:
+	// for(int n=0;n<64;n++){
+	for(int n=0;n<48;n++){
 		fprintf(logfile, "{\"type\": \"event %2d\", \"value\": %llu}\n", n, hpcounters[n]);
     }
 }

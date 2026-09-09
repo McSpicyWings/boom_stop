@@ -546,12 +546,16 @@ class BoomCore(usingTrace: Boolean)(implicit p: Parameters) extends BoomModule
     event_counters.io.event_signals(w) := 0.U
   }
 
-  when (startCounter) {
-    event_counters.io.event_signals(0) :=   1.U  //cycles
-    event_counters.io.event_signals(1) :=  RegNext(PopCount(rob.io.commit.arch_valids.asUInt)) // commit inst
-    event_counters.io.event_signals(2) :=  Mux(io.ifu.icache_valid_access, 1.U, 0.U) //i-cache valid access number
-    event_counters.io.event_signals(3) :=  Mux(io.ifu.icache_hit, 1.U, 0.U)  //icache hit number
-    event_counters.io.event_signals(4) :=  Mux(io.ifu.perf.acquire, 1.U, 0.U) //i-cache send req to next level cache
+	  when (startCounter) {
+	    event_counters.io.event_signals(0) :=   1.U  //cycles
+	    event_counters.io.event_signals(1) :=  RegNext(PopCount(rob.io.commit.arch_valids.asUInt)) // commit inst
+	    /*
+	     * Original full event map kept for reference. The compact print map below
+	     * keeps cycles/insts and all branch-prediction-related events in the
+	     * printable low-number range.
+	    event_counters.io.event_signals(2) :=  Mux(io.ifu.icache_valid_access, 1.U, 0.U) //i-cache valid access number
+	    event_counters.io.event_signals(3) :=  Mux(io.ifu.icache_hit, 1.U, 0.U)  //icache hit number
+	    event_counters.io.event_signals(4) :=  Mux(io.ifu.perf.acquire, 1.U, 0.U) //i-cache send req to next level cache
     event_counters.io.event_signals(5) :=  Mux(io.ifu.itlb_valid_access, 1.U, 0.U) //itlb valid access number
     event_counters.io.event_signals(6) :=  Mux(io.ifu.itlb_hit, 1.U, 0.U) //itlb hit number
     event_counters.io.event_signals(7) :=  Mux(io.ifu.perf.tlbMiss, 1.U, 0.U) //i-tlb start ptw
@@ -631,10 +635,60 @@ class BoomCore(usingTrace: Boolean)(implicit p: Parameters) extends BoomModule
     event_counters.io.event_signals(71) :=  Mux(io.ifu.bpd_perf.tage_alloc_success, 1.U, 0.U)             //tage alloc success
     event_counters.io.event_signals(72) :=  Mux(io.ifu.bpd_perf.tage_alloc_fail,    1.U, 0.U)             //tage alloc fail
     event_counters.io.event_signals(73) :=  io.ifu.bpd_perf.loop_override_cnt                             //loop high-conf override count
-    event_counters.io.event_signals(74) :=  Mux(io.ifu.bpd_perf.loop_override_misp, 1.U, 0.U)             //loop override mispredict
-    event_counters.io.event_signals(75) :=  Mux(io.ifu.bpd_perf.loop_pcnt_modified, 1.U, 0.U)             //loop p_cnt modified
-    event_counters.io.event_signals(76) :=  Mux(io.ifu.bpd_perf.loop_conf_degraded, 1.U, 0.U)             //loop conf=7 degraded
-  }
+	    event_counters.io.event_signals(74) :=  Mux(io.ifu.bpd_perf.loop_override_misp, 1.U, 0.U)             //loop override mispredict
+	    event_counters.io.event_signals(75) :=  Mux(io.ifu.bpd_perf.loop_pcnt_modified, 1.U, 0.U)             //loop p_cnt modified
+	    event_counters.io.event_signals(76) :=  Mux(io.ifu.bpd_perf.loop_conf_degraded, 1.U, 0.U)             //loop conf=7 degraded
+	     */
+
+	    //PerfCounterSupport: compact printable branch-prediction event map (0-47)
+	    event_counters.io.event_signals(2)  :=  Mux(io.ifu.bpsrc_f1, 1.U, 0.U)                                //npc_from_f1
+	    event_counters.io.event_signals(3)  :=  Mux(io.ifu.bpsrc_f2, 1.U, 0.U)                                //npc_from_f2
+	    event_counters.io.event_signals(4)  :=  Mux(io.ifu.bpsrc_f3, 1.U, 0.U)                                //npc_from_f3
+	    event_counters.io.event_signals(5)  :=  Mux(io.ifu.bpsrc_core, 1.U, 0.U)                              //npc_from_core
+	    event_counters.io.event_signals(6)  :=  PopCount(exe_is_br.asUInt)                                    //execute br number
+	    event_counters.io.event_signals(7)  :=  PopCount(exe_is_jalr.asUInt)                                  //execute jalr number
+	    event_counters.io.event_signals(8)  :=  PopCount(exe_is_ret.asUInt)                                   //execute jalr-ret number
+	    event_counters.io.event_signals(9)  :=  PopCount(exe_is_jalrcall.asUInt)                              //execute jalr-call number
+	    event_counters.io.event_signals(10) :=  Mux(exe_misp_br, 1.U, 0.U)                                    //exe misp br number
+	    event_counters.io.event_signals(11) :=  Mux(exe_misp_jalr, 1.U, 0.U)                                  //exe misp jalr number
+	    event_counters.io.event_signals(12) :=  Mux(exe_misp_ret, 1.U, 0.U)                                   //exe misp jalr-ret number
+	    event_counters.io.event_signals(13) :=  Mux(exe_misp_jalrcall, 1.U, 0.U)                              //exe misp jalr-call number
+	    event_counters.io.event_signals(14) :=  PopCount(com_is_br.asUInt)                                    //commit br number
+	    event_counters.io.event_signals(15) :=  PopCount(com_is_jalr.asUInt)                                  //commit jalr number
+	    event_counters.io.event_signals(16) :=  PopCount(com_is_ret.asUInt)                                   //commit jalr-ret number
+	    event_counters.io.event_signals(17) :=  PopCount(com_is_jalrcall.asUInt)                              //commit jalr-call number
+	    event_counters.io.event_signals(18) :=  PopCount(com_misp_br.asUInt)                                  //com misp br number
+	    event_counters.io.event_signals(19) :=  PopCount(com_misp_jalr.asUInt)                                //com misp jalr number
+	    event_counters.io.event_signals(20) :=  PopCount(com_misp_ret.asUInt)                                 //com misp jalr-ret number
+	    event_counters.io.event_signals(21) :=  PopCount(com_misp_jalrcall.asUInt)                            //com misp jalr-call number
+	    event_counters.io.event_signals(22) :=  io.ifu.bpd_perf.tage_any_hit                                  //tage any-table hit
+	    event_counters.io.event_signals(23) :=  io.ifu.bpd_perf.tage_provider_t0                              //tage provider=t0 (hist=2)
+	    event_counters.io.event_signals(24) :=  io.ifu.bpd_perf.tage_provider_t1                              //tage provider=t1 (hist=4)
+	    event_counters.io.event_signals(25) :=  io.ifu.bpd_perf.tage_provider_t2                              //tage provider=t2 (hist=8)
+	    event_counters.io.event_signals(26) :=  io.ifu.bpd_perf.tage_provider_t3                              //tage provider=t3 (hist=16)
+	    event_counters.io.event_signals(27) :=  io.ifu.bpd_perf.tage_provider_t4                              //tage provider=t4 (hist=32)
+	    event_counters.io.event_signals(28) :=  io.ifu.bpd_perf.tage_provider_t5                              //tage provider=t5 (hist=64)
+	    event_counters.io.event_signals(29) :=  Mux(io.ifu.bpd_perf.tage_alloc_attempt, 1.U, 0.U)             //tage alloc attempts
+	    event_counters.io.event_signals(30) :=  Mux(io.ifu.bpd_perf.tage_alloc_success, 1.U, 0.U)             //tage alloc success
+	    event_counters.io.event_signals(31) :=  Mux(io.ifu.bpd_perf.tage_alloc_fail,    1.U, 0.U)             //tage alloc fail
+	    event_counters.io.event_signals(32) :=  io.ifu.bpd_perf.loop_override_cnt                             //loop high-conf override count
+	    event_counters.io.event_signals(33) :=  Mux(io.ifu.bpd_perf.loop_override_misp, 1.U, 0.U)             //loop override mispredict
+	    event_counters.io.event_signals(34) :=  Mux(io.ifu.bpd_perf.loop_pcnt_modified, 1.U, 0.U)             //loop p_cnt modified
+	    event_counters.io.event_signals(35) :=  Mux(io.ifu.bpd_perf.loop_conf_degraded, 1.U, 0.U)             //loop conf=7 degraded
+    // Successful TAGE allocations by table index (shortest to longest history).
+    event_counters.io.event_signals(36) := Mux(io.ifu.bpd_perf.tage_alloc_t0, 1.U, 0.U)
+    event_counters.io.event_signals(37) := Mux(io.ifu.bpd_perf.tage_alloc_t1, 1.U, 0.U)
+    event_counters.io.event_signals(38) := Mux(io.ifu.bpd_perf.tage_alloc_t2, 1.U, 0.U)
+    event_counters.io.event_signals(39) := Mux(io.ifu.bpd_perf.tage_alloc_t3, 1.U, 0.U)
+    event_counters.io.event_signals(40) := Mux(io.ifu.bpd_perf.tage_alloc_t4, 1.U, 0.U)
+    event_counters.io.event_signals(41) := Mux(io.ifu.bpd_perf.tage_alloc_t5, 1.U, 0.U)
+    event_counters.io.event_signals(42) := Mux(io.ifu.bpd_perf.tage_alloc_fail_no_provider, 1.U, 0.U)
+    event_counters.io.event_signals(43) := Mux(io.ifu.bpd_perf.tage_alloc_fail_provider_t0, 1.U, 0.U)
+    event_counters.io.event_signals(44) := Mux(io.ifu.bpd_perf.tage_alloc_fail_provider_t1, 1.U, 0.U)
+    event_counters.io.event_signals(45) := Mux(io.ifu.bpd_perf.tage_alloc_fail_provider_t2, 1.U, 0.U)
+    event_counters.io.event_signals(46) := Mux(io.ifu.bpd_perf.tage_alloc_fail_provider_t3, 1.U, 0.U)
+    event_counters.io.event_signals(47) := Mux(io.ifu.bpd_perf.tage_alloc_fail_provider_t4, 1.U, 0.U)
+	  }
   
 
   //-------------------------------------------------------------

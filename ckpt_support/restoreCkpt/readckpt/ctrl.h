@@ -94,7 +94,9 @@ void read_counters()
 	ReadCounter16(&hpcounters[48], 48);
 
     char str[256];
-	for(int n=50;n<53;n++){
+	// Original focused dump:
+	// for(int n=50;n<53;n++){
+	for(int n=0;n<48;n++){
 		sprintf(str, "{\"type\": \"event %2d\", \"value\": %llu}\n", n, hpcounters[n]);
         write(1, str, strlen(str));
     }

@@ -3,7 +3,6 @@ import os
 import json
 import sys
 import struct
-import numpy as np
 
 
 # 用于记录每个事件的所有数据信息，支持直接+ - * /
@@ -50,7 +49,7 @@ class EventInfo:
                 elif optype == "*":
                     val = self.value[idx] * other.value[idx]
                 elif optype == "/":
-                    val = 1.0 * self.value[idx] / other.value[idx]
+                    val = 1.0 * self.value[idx] / other.value[idx] if other.value[idx] else float("nan")
                 else:
                     val = self.value[idx] + other.value[idx]
                 temp.addinfo(val)
@@ -200,32 +199,27 @@ def readEventInfo(filename, eventdict):
 
 
 def process_infos(eventinfos):
+    # Resolve names instead of positions: the compact predictor map differs
+    # from the original cache/dispatch map and logs may contain fewer events.
+    by_name = {info.name: info for info in eventinfos}
 
-    # 处理一些原始数据，计算一些比例，占比等参数
-    eventinfos.append(cal_fraction(eventinfos[1], eventinfos[0], "user_ipc"))
-    eventinfos.append(cal_fraction(eventinfos[2] - eventinfos[3], eventinfos[2], "icache_miss_rate"))
-    eventinfos.append(cal_fraction(eventinfos[4], eventinfos[2], "icache_to_l2_rate"))
-    eventinfos.append(cal_fraction(eventinfos[5] - eventinfos[6], eventinfos[5], "itlb_miss_rate"))
-    eventinfos.append(cal_fraction(eventinfos[7], eventinfos[5], "itlb_to_ptw_rate"))
+    def ratio(numerator, denominator, name):
+        if numerator in by_name and denominator in by_name:
+            eventinfos.append(cal_fraction(by_name[numerator], by_name[denominator], name))
 
-    eventinfos.append(cal_fraction(eventinfos[37], eventinfos[36], "dcache_nack_rate"))
-    eventinfos.append(cal_fraction(eventinfos[38], eventinfos[36], "dcache_to_l2_rate"))
-    eventinfos.append(cal_fraction(eventinfos[34], eventinfos[33], "dtlb_miss_rate"))
-    eventinfos.append(cal_fraction(eventinfos[35], eventinfos[33], "dtlb_to_ptw_rate"))
-
-    eventinfos.append(cal_fraction(eventinfos[18], eventinfos[0], "brmask_stall_cycle_rate"))
-    eventinfos.append(cal_fraction(eventinfos[25], eventinfos[0], "dis_rob_stall_cycle_rate"))
-    eventinfos.append(cal_fraction(eventinfos[30], eventinfos[26], "misspec_issuop_rate"))
-    eventinfos.append(cal_fraction((eventinfos[43] + eventinfos[44]) * 1000, eventinfos[1], "exe_misp_MPKI"))
-    tinfos = []
-    tinfos.append(eventinfos[43])   # exe mis br
-    tinfos.append(eventinfos[45])   # exe mis ret
-    tinfos.append(eventinfos[46])   # exe mis jalrcall
-    temp = eventinfos[44] - eventinfos[45] - eventinfos[46]
-    temp.name = "exe_misp_jalr_else"
-    tinfos.append(temp)   # exe mis else jalr
-    eventinfos.extend(cal_percentage(tinfos[0:4]))  # exe misp rate
-
+    ratio("insts", "cycles", "user_ipc")
+    for outcome in ("success", "fail"):
+        ratio("tage_alloc_" + outcome, "tage_alloc_attempt", "tage_alloc_" + outcome + "_rate")
+    for table in range(6):
+        name = "tage_alloc_t" + str(table)
+        ratio(name, "tage_alloc_success", name + "_perc")
+    for provider in ["no_provider"] + ["provider_t" + str(i) for i in range(5)]:
+        failed = "tage_alloc_fail_" + provider
+        ratio(failed, "tage_alloc_fail", failed + "_per_fail")
+    if all(name in by_name for name in ("exe_misp_br", "exe_misp_jalr", "insts")):
+        eventinfos.append(cal_fraction(
+            (by_name["exe_misp_br"] + by_name["exe_misp_jalr"]) * 1000,
+            by_name["insts"], "exe_misp_MPKI"))
     return eventinfos
 
 

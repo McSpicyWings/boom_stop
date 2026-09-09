@@ -372,6 +372,24 @@ class TageBranchPredictorBank(params: BoomTageParams = BoomTageParams())(implici
   io.perf.tage_alloc_success := tage_alloc_success
   io.perf.tage_alloc_fail    := tage_alloc_fail
 
+  // Count the selected history table only when a commit update allocates.
+  io.perf.tage_alloc_t0 := tage_alloc_success && s1_update_meta.allocate(s1_update.bits.cfi_idx.bits).bits === 0.U
+  io.perf.tage_alloc_t1 := tage_alloc_success && s1_update_meta.allocate(s1_update.bits.cfi_idx.bits).bits === 1.U
+  io.perf.tage_alloc_t2 := tage_alloc_success && s1_update_meta.allocate(s1_update.bits.cfi_idx.bits).bits === 2.U
+  io.perf.tage_alloc_t3 := tage_alloc_success && s1_update_meta.allocate(s1_update.bits.cfi_idx.bits).bits === 3.U
+  io.perf.tage_alloc_t4 := tage_alloc_success && s1_update_meta.allocate(s1_update.bits.cfi_idx.bits).bits === 4.U
+  io.perf.tage_alloc_t5 := tage_alloc_success && s1_update_meta.allocate(s1_update.bits.cfi_idx.bits).bits === 5.U
+
+  // Classify failed commit-time allocation attempts by the saved provider.
+  // The longest-history provider has no allocation target and is excluded.
+  val alloc_fail_provider = s1_update_meta.provider(s1_update.bits.cfi_idx.bits)
+  io.perf.tage_alloc_fail_no_provider := tage_alloc_fail && !alloc_fail_provider.valid
+  io.perf.tage_alloc_fail_provider_t0 := tage_alloc_fail && alloc_fail_provider.valid && alloc_fail_provider.bits === 0.U && 0.U < (tageNTables - 1).U
+  io.perf.tage_alloc_fail_provider_t1 := tage_alloc_fail && alloc_fail_provider.valid && alloc_fail_provider.bits === 1.U && 1.U < (tageNTables - 1).U
+  io.perf.tage_alloc_fail_provider_t2 := tage_alloc_fail && alloc_fail_provider.valid && alloc_fail_provider.bits === 2.U && 2.U < (tageNTables - 1).U
+  io.perf.tage_alloc_fail_provider_t3 := tage_alloc_fail && alloc_fail_provider.valid && alloc_fail_provider.bits === 3.U && 3.U < (tageNTables - 1).U
+  io.perf.tage_alloc_fail_provider_t4 := tage_alloc_fail && alloc_fail_provider.valid && alloc_fail_provider.bits === 4.U && 4.U < (tageNTables - 1).U
+
   //io.f3_meta := Cat(f3_meta.asUInt, micro.io.f3_meta(micro.metaSz-1,0), base.io.f3_meta(base.metaSz-1, 0))
   io.f3_meta := f3_meta.asUInt
 }

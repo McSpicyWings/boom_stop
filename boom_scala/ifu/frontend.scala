@@ -244,6 +244,7 @@ class FetchBundle(implicit p: Parameters) extends BoomBundle
   val bpd_meta      = Vec(nBanks, UInt())
 
   // Source of the prediction from this bundle
+  val pred_src = Vec(fetchWidth, UInt(CommitPredictionSource.width.W))
   val fsrc    = UInt(BSRC_SZ.W)
   // Source of the prediction to this bundle
   val tsrc    = UInt(BSRC_SZ.W)
@@ -810,6 +811,20 @@ class BoomFrontendModule(outer: BoomFrontend) extends LazyModuleImp(outer)
     ),
     nextFetch(f3_fetch_bundle.pc)
   )
+
+  // Decode supplies direct targets; RAS can replace a return target. Keep
+  // these corrections separate from TAGE/LOOP's predictor-stage decisions.
+  for (i <- 0 until fetchWidth) {
+    val pred = f3_bpd_resp.io.deq.bits.preds(i)
+    val predictedTaken = pred.predicted_pc.valid && (pred.is_jal || (pred.is_br && pred.taken))
+    val finalTarget = Mux(f3_ret_mask(i) && useBPD.B && useRAS.B,
+      ras.io.read_addr, f3_targs(i))
+    val isCfi = f3_cfi_types(i) =/= CFI_X
+    val corrected = CommitPredictionSource.changed(predictedTaken, pred.predicted_pc.bits,
+      f3_redirects(i), finalTarget)
+    f3_fetch_bundle.pred_src(i) := Mux(!isCfi, CommitPredictionSource.sequential,
+      Mux(corrected, CommitPredictionSource.decodeRas, pred.pred_src))
+  }
 
   f3_fetch_bundle.next_pc       := f3_predicted_target
   val f3_predicted_ghist = f3_fetch_bundle.ghist.update(

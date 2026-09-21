@@ -10,7 +10,7 @@
 
 uint64_t placefolds[1024];
 uint64_t tempStackMem[4096];
-uint64_t hpcounters[64];
+uint64_t hpcounters[80];
 uint64_t procTag=0x1234567;
 uint64_t maxevent=10000, warmupinst=1000, eventsel=0, maxperiod=0;
 uint64_t sampleHapTimes=0;
@@ -92,11 +92,12 @@ void read_counters()
 	ReadCounter16(&hpcounters[16], 16);
 	ReadCounter16(&hpcounters[32], 32);
 	ReadCounter16(&hpcounters[48], 48);
+    ReadCounter16(&hpcounters[64], 64);
 
     char str[256];
 	// Original focused dump:
 	// for(int n=50;n<53;n++){
-	for(int n=0;n<48;n++){
+	for(int n=0;n<66;n++){
 		sprintf(str, "{\"type\": \"event %2d\", \"value\": %llu}\n", n, hpcounters[n]);
         write(1, str, strlen(str));
     }

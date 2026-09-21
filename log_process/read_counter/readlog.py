@@ -220,6 +220,16 @@ def process_infos(eventinfos):
         eventinfos.append(cal_fraction(
             (by_name["exe_misp_br"] + by_name["exe_misp_jalr"]) * 1000,
             by_name["insts"], "exe_misp_MPKI"))
+    # Source shares use the same commit histogram as their denominator.
+    for kind in ("all", "br", "jump"):
+        names = ["commit_" + kind + "_src_" + src
+                 for src in ("seq", "f1", "f2", "f3", "decode_ras", "core")]
+        if all(name in by_name for name in names):
+            total = by_name[names[0]]
+            for name in names[1:]:
+                total = total + by_name[name]
+            for name in names:
+                eventinfos.append(cal_fraction(by_name[name], total, name + "_share"))
     return eventinfos
 
 

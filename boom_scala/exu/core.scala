@@ -542,6 +542,17 @@ class BoomCore(usingTrace: Boolean)(implicit p: Parameters) extends BoomModule
   }
 
   //connect signal to counters
+  // Same one-cycle commit alignment as event 1, counted only at arch commit.
+  val commitSourceCounts = (0 until 3).map { kind =>
+    (0 until CommitPredictionSource.count).map { source =>
+      RegNext(PopCount(VecInit((0 until coreWidth).map { w =>
+        val uop = rob.io.commit.uops(w)
+        val selected = if (kind == 0) true.B else if (kind == 1) uop.is_br else (uop.is_jal || uop.is_jalr)
+        rob.io.commit.arch_valids(w) && selected && uop.pred_src === source.U
+      })), 0.U)
+    }
+  }
+
   for (w <- 0 until subECounterNum*16) {
     event_counters.io.event_signals(w) := 0.U
   }
@@ -688,6 +699,11 @@ class BoomCore(usingTrace: Boolean)(implicit p: Parameters) extends BoomModule
     event_counters.io.event_signals(45) := Mux(io.ifu.bpd_perf.tage_alloc_fail_provider_t2, 1.U, 0.U)
     event_counters.io.event_signals(46) := Mux(io.ifu.bpd_perf.tage_alloc_fail_provider_t3, 1.U, 0.U)
     event_counters.io.event_signals(47) := Mux(io.ifu.bpd_perf.tage_alloc_fail_provider_t4, 1.U, 0.U)
+
+    // 0: all instructions, 1: BR, 2: JUMP (JAL + JALR).
+    for (kind <- 0 until 3; source <- 0 until CommitPredictionSource.count) {
+      event_counters.io.event_signals(48 + kind * CommitPredictionSource.count + source) := commitSourceCounts(kind)(source)
+    }
 	  }
   
 

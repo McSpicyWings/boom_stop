@@ -143,6 +143,9 @@ class MicroOp(implicit p: Parameters) extends BoomBundle
 
 
   // What prediction structure provides the prediction FROM this op
+  // Immutable frontend snapshot and final attribution (ROB may set core).
+  val pred_src_snapshot = UInt(CommitPredictionSource.width.W)
+  val pred_src = UInt(CommitPredictionSource.width.W)
   val debug_fsrc       = UInt(BSRC_SZ.W)
   // What prediction structure provides the prediction TO this op
   val debug_tsrc       = UInt(BSRC_SZ.W)

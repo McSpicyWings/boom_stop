@@ -420,12 +420,20 @@ class Rob(
       MatchBank(GetBankIdx(io.brupdate.b2.uop.rob_idx)) &&
       GetRowIdx(io.brupdate.b2.uop.rob_idx) === com_idx) {
       io.commit.uops(w).debug_fsrc := BSRC_C
+      io.commit.uops(w).pred_src := CommitPredictionSource.core
       io.commit.uops(w).taken      := io.brupdate.b2.taken
     }
 
 
     // Don't attempt to rollback the tail's row when the rob is full.
     val rbk_row = rob_state === s_rollback && !full
+
+    when (io.commit.arch_valids(w)) {
+      assert(io.commit.uops(w).pred_src < CommitPredictionSource.count.U)
+      assert(io.commit.uops(w).pred_src_snapshot < CommitPredictionSource.core)
+      assert(io.commit.uops(w).pred_src === CommitPredictionSource.core ||
+        io.commit.uops(w).pred_src === io.commit.uops(w).pred_src_snapshot)
+    }
 
     io.commit.rbk_valids(w) := rbk_row && rob_val(com_idx) && !(enableCommitMapTable.B)
     io.commit.rollback := (rob_state === s_rollback)
@@ -470,6 +478,7 @@ class Rob(
     when (io.brupdate.b2.mispredict &&
       MatchBank(GetBankIdx(io.brupdate.b2.uop.rob_idx))) {
       rob_uop(GetRowIdx(io.brupdate.b2.uop.rob_idx)).debug_fsrc := BSRC_C
+      rob_uop(GetRowIdx(io.brupdate.b2.uop.rob_idx)).pred_src := CommitPredictionSource.core
       rob_uop(GetRowIdx(io.brupdate.b2.uop.rob_idx)).taken      := io.brupdate.b2.taken
     }
 

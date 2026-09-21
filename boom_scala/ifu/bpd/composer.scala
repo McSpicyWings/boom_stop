@@ -17,6 +17,32 @@ class ComposedBranchPredictorBank(implicit p: Parameters) extends BranchPredicto
   val (components, resp) = getBPDComponents(io.resp_in(0), p)
   io.resp := resp
 
+  // Track each slot independently through the aligned predictor stages.
+  // F1 hit is the initial provider (including a not-taken hit); later stages
+  // receive credit only when the effective redirect decision changes.
+  def redirects(p: BranchPrediction): Bool =
+    p.predicted_pc.valid && (p.is_jal || (p.is_br && p.taken))
+  for (w <- 0 until bankWidth) {
+    val p1 = resp.f1(w)
+    val p2 = resp.f2(w)
+    val p3 = resp.f3(w)
+    val src1 = Mux(p1.predicted_pc.valid && (p1.is_br || p1.is_jal),
+      CommitPredictionSource.f1, CommitPredictionSource.sequential)
+    val prev1Taken = RegNext(redirects(p1), false.B)
+    val prev1Target = RegNext(p1.predicted_pc.bits)
+    val src2 = Mux(CommitPredictionSource.changed(prev1Taken, prev1Target,
+      redirects(p2), p2.predicted_pc.bits), CommitPredictionSource.f2,
+      RegNext(src1, CommitPredictionSource.sequential))
+    val prev2Taken = RegNext(redirects(p2), false.B)
+    val prev2Target = RegNext(p2.predicted_pc.bits)
+    val src3 = Mux(CommitPredictionSource.changed(prev2Taken, prev2Target,
+      redirects(p3), p3.predicted_pc.bits), CommitPredictionSource.f3,
+      RegNext(src2, CommitPredictionSource.sequential))
+    io.resp.f1(w).pred_src := src1
+    io.resp.f2(w).pred_src := src2
+    io.resp.f3(w).pred_src := src3
+  }
+
 
   var metas = 0.U(1.W)
   var meta_sz = 0

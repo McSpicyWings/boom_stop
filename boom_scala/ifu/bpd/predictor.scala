@@ -45,6 +45,8 @@ class BpdPerfBundle(implicit p: Parameters) extends BoomBundle()(p) {
 // A branch prediction for a single instruction
 class BranchPrediction(implicit p: Parameters) extends BoomBundle()(p)
 {
+  val pred_src = UInt(CommitPredictionSource.width.W)
+
   // If this is a branch, do we take it?
   val taken           = Bool()
 

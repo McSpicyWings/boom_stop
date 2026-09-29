@@ -20,8 +20,8 @@ Within one common measurement interval, their sum equals `tage_alloc_success`.
 Counter reads are sequential, not an atomic snapshot: allocations during the
 read sequence can make software totals differ.
 
-`perf.riscv` and `readckpt.riscv` now print compact events 0–65, including
-the later commit-source extension. Their 80-entry buffers and five
+`perf.riscv` and `readckpt.riscv` now print compact events 0–63, including
+the later commit-source extension. Their 64-entry buffers and four
 `ReadCounter16` calls cover this range (see `commit-prediction-sources.md`). `readlog.py`
 uses event names for derived metrics and exports the six counts and their
 fractions of successful allocations; a zero denominator produces `nan`.

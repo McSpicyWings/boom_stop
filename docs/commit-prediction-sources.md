@@ -31,20 +31,26 @@ uop 快照并未另增“原始来源 × 是否误预测”直方图。如果以
 
 | 来源 | boom_stop ALL | BR | JUMP | Chipyard v3 ALL | BR | JUMP |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| seq | 48 | 54 | 60 | 62 | 68 | 74 |
-| f1 | 49 | 55 | 61 | 63 | 69 | 75 |
-| f2 | 50 | 56 | 62 | 64 | 70 | 76 |
-| f3 | 51 | 57 | 63 | 65 | 71 | 77 |
-| decode_ras | 52 | 58 | 64 | 66 | 72 | 78 |
-| core | 53 | 59 | 65 | 67 | 73 | 79 |
+| seq | 48 | 54 | 60 | 9 | 15 | 21 |
+| f1 | 49 | 55 | 61 | 10 | 16 | 22 |
+| f2 | 50 | 56 | 62 | 11 | 17 | 23 |
+| f3 | 51 | 57 | 63 | 12 | 18 | 24 |
+| decode_ras | 52 | 58 | **33** | 13 | 19 | **25** |
+| core | 53 | 59 | **35** | 14 | 20 | **26** |
 
-FPGA 工程使用 `boom_scala` 的 compact 编号；现有 v3 有额外旧事件，因此保留其编号并从 62 开始。不能直接用 compact eventlist 解码 v3 输出。Chipyard generators/boom 仍链接到 `/root/project/riscv-boom-code-new`，相同逻辑已同步至 `src/main/scala/v3`，由该树完成实际编译。
+### 64 项版本（compact64-v2）
 
-`perf.riscv` 与 `readckpt.riscv` 扩为 80 项缓冲/读取、输出 0–65 共 66 项；继续使用 FPGA ADDI 读取协议。v3 测试使用其 ANDI 协议并读取全部 80 项。v3 的 subECounterNum 从 4 改为 5；boom_stop 已是 5。
+实际 FPGA 读取程序仅输出 E0–E63，故把原 E64/E65 移到 E33/E35，分别替换 `loop_override_misp` 与 `loop_conf_degraded`。原 E33 并非精确 LOOP 错误计数；原 E35 仅是更新诊断。保留 E32 覆盖候选、E34 p_cnt 写路径及所有 TAGE 事件。除上述两槽和移除 E64/E65 外，compact 编号不变。预测算法、uop 快照、ROB 提交门控均不变；新 E33/E35 直接来自对应 JUMP 提交 PopCount，不用 ALL−BR 推导。
+
+两棵 Scala 树均将 subECounterNum 设为 4（64 项），源码对提交事件索引增加 `<64` 检查。v3 原有布局不同，提交来源改用 E9–26，复用旧解码/派发/缓存事件，原 E27–61 保留，E62–63 置零。v3 不使用 FPGA compact eventlist；其 JUMP decode/core 为 E25/E26。Chipyard generators/boom 仍链接到 `/root/project/riscv-boom-code-new`，由该树实际编译测试。
+
+`perf.riscv`、`readckpt.riscv` 使用 64 项缓冲、四组 ReadCounter16、打印 0–63；FPGA 保留 ADDI 协议，v3 测试保留 ANDI 协议。应重新生成 bitstream 并使用本版读取程序和 eventlist。读取程序在事件前输出 `counter_map=compact64-v2 slots=64` 以标识软件版本；它不是硬件版本探测。
+
+旧日志不能使用新 eventlist：0913/0929 分析脚本已固定读取各自 eventlist.snapshot，不改写历史快照。通用 readlog.py 可指定映射路径：`python3 readlog.py logfile /path/to/eventlist.snapshot`；省略时使用当前目录 eventlist。0929 缺失两项的既有报告仍是条件推导，重新烧录采样后才有实测值。
 
 readlog.py 输出全部新事件，并增加每组内的六个 `_share`，分母为本组六项之和，分母为零输出 nan。必须使用新 bitstream 配合新读取程序。跨事件比较应冻结同一计数窗口；读取过程中继续计数会导致不一致。
 
-## 复现
+## 当前版本复现
 
 复用本机已有 Chipyard、Verilator、RISC-V 编译器与裸机运行库：
 
@@ -54,7 +60,7 @@ bash /root/project/boom_stop/test/riscv_test/run_commit_prediction_sources_v3.sh
 
 该脚本重编译两个读取程序、生成 MediumBoomV3Config simulator、编译/运行 3000 轮混合 BR/JAL/JALR 的计数测试，再运行 rv64ui-p-jalr。日志为 `/tmp/commit-pred-{build,test,isa}.log`。FPGA 工程的旧 BOOM API 与 Chipyard v3 不同；本次实际编译运行的是同步修改后的 v3，未执行 Vivado 综合或板上实验。
 
-## 本次验证结果
+## 初版验证结果（旧映射，历史记录）
 
 Scala 编译、硬件展开、Verilator 生成及 C++ 链接退出码均为 0；混合测试打印 PASS，rv64ui-p-jalr 退出码为 0，ROB 断言未触发。
 
@@ -71,3 +77,9 @@ Scala 编译、硬件展开、Verilator 生成及 C++ 链接退出码均为 0；
 ALL 合计等于 event1；BR 合计等于 v3 event28；JUMP 大于仅 JALR 的 event29=9000；各来源 BR+JUMP 不超过 ALL；core_ALL=core_BR+core_JUMP。各大类来源均有运行覆盖，但部分类型与来源组合为零，测试并未穷举每种时序和预测修正。此压力程序的数据用于验证计数，不能代表 SPEC 性能。
 
 软件检查：两个读取程序交叉编译通过；解析器用 66 项合成输入检查全部 18 个 share，等量输入为 1/6、全零输入为 nan；git diff --check 通过。
+
+## 64 项版验证
+
+运行上述脚本，验证 ALL 来源和=E1、BR 来源和=旧 BR 计数、JUMP 包含 JAL、core 与 decode/RAS 均满足 ALL=BR+JUMP，且 JUMP decode/RAS 和 core 两项均非零。结果见构建和运行日志。
+
+本版实测：`make CONFIG=MediumBoomV3Config -j8` 及完整复现脚本退出 0；混合程序输出 `PASS: commit source histogram invariants`，提交指令 133479、BR 9000、JUMP 13477。v3 E25（JUMP decode/RAS）直接读出 **916**，E26（JUMP core）直接读出 **2386**；core_ALL=5401=3015+2386，decode_ALL=916=0+916。rv64ui-p-jalr 退出 0。两个 FPGA 读取程序重新编译通过；64 项映射与含版本标识的解析器端到端检查通过。实际编译运行的是 v3；未执行本版 Vivado 综合或板上测试。

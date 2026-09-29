@@ -12,3 +12,15 @@
 3. 方法3：example/self_handle/include_files
    - 该方法直接提供头文件，其中包含了所有设置采样控制的接口，同时提供了基本框架用于完成采样函数的设置
    - 使用方法：将头文件包含到源文件中，在需要的位置调用initStart函数，同时自行设置采样参数和采样函数中的处理
+
+## 64 项事件映射（compact64-v2）
+
+使用本版 Scala 重新生成 bitstream 后，打印 E0–E63；E33 为 `commit_jump_src_decode_ras`，E35 为 `commit_jump_src_core`。不再输出这两个槽原先的 LOOP 诊断事件。完整映射见 `log_process/read_counter/eventlist`，统计口径见 `docs/commit-prediction-sources.md`。
+
+旧 bitstream/旧日志的 E33/E35 含义不同，分析时必须指定对应历史映射。例如：
+
+```bash
+cd /root/project/boom_stop/log_process/read_counter
+python3 readlog.py /path/to/new-result.log eventlist
+# 分析旧日志时第二个参数改为相应 analysis 目录的 eventlist.snapshot
+```

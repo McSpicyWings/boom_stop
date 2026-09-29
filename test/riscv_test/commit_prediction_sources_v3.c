@@ -2,7 +2,7 @@
 #include <stdint.h>
 
 /* Chipyard v3 ANDI interface; not the boom_stop FPGA ADDI interface. */
-static uint64_t counters[80];
+static uint64_t counters[64];
 static volatile uint64_t sink;
 static __attribute__((noinline)) uint64_t first(uint64_t n) { sink += n; return sink; }
 static __attribute__((noinline)) uint64_t second(uint64_t n) { sink ^= n; return sink; }
@@ -34,19 +34,20 @@ int main(void) {
     READ8(counters+16,16); READ8(counters+24,24);
     READ8(counters+32,32); READ8(counters+40,40);
     READ8(counters+48,48); READ8(counters+56,56);
-    READ8(counters+64,64); READ8(counters+72,72);
     uint64_t totals[3] = {0,0,0};
     for (int kind = 0; kind < 3; ++kind)
         for (int src = 0; src < 6; ++src)
-            totals[kind] += counters[62 + kind*6 + src];
+            totals[kind] += counters[9 + kind*6 + src];
     int failed = totals[0] != counters[1] || totals[1] != counters[28] ||
                  totals[2] <= counters[29] || totals[1] < 3000 || totals[2] < 6000 ||
-                 counters[67] != counters[73] + counters[79] || counters[73] == 0;
+                 counters[14] != counters[20] + counters[26] || counters[20] == 0 ||
+                 counters[25] == 0 || counters[26] == 0 ||
+                 counters[13] != counters[19] + counters[25];
     for (int src = 0; src < 6; ++src)
-        failed |= counters[68+src] + counters[74+src] > counters[62+src];
+        failed |= counters[15+src] + counters[21+src] > counters[9+src];
     printf("commit inst=%llu br=%llu jalr=%llu jump=%llu\n",
            counters[1], counters[28], counters[29], totals[2]);
-    for (int i = 62; i < 80; ++i)
+    for (int i = 9; i < 27; ++i)
         printf("event %d: %llu\n", i, counters[i]);
     printf("%s: commit source histogram invariants\n", failed ? "FAIL" : "PASS");
     return failed;

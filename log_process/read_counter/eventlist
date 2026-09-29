@@ -31,9 +31,9 @@ event 29, tage_alloc_attempt
 event 30, tage_alloc_success
 event 31, tage_alloc_fail
 event 32, loop_override_cnt
-event 33, loop_override_misp
+event 33, commit_jump_src_decode_ras
 event 34, loop_pcnt_modified
-event 35, loop_conf_degraded
+event 35, commit_jump_src_core
 event 36, tage_alloc_t0
 event 37, tage_alloc_t1
 event 38, tage_alloc_t2
@@ -62,5 +62,3 @@ event 60, commit_jump_src_seq
 event 61, commit_jump_src_f1
 event 62, commit_jump_src_f2
 event 63, commit_jump_src_f3
-event 64, commit_jump_src_decode_ras
-event 65, commit_jump_src_core

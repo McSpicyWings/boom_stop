@@ -73,12 +73,12 @@ class EventInfo:
 # ----------------------------------------------------------------------------------
 
 # 读取所有事件的名称
-def read_eventlist():
-    if not os.path.exists("eventlist") :
+def read_eventlist(path="eventlist"):
+    if not os.path.exists(path) :
         print("the file eventlist is not in this directory!")
         return 0
 
-    file1 = open("eventlist") 
+    file1 = open(path)
     eventdict = {}
     while 1:
         line = file1.readline()
@@ -234,7 +234,7 @@ def process_infos(eventinfos):
 
 
 if len(sys.argv) < 2: 
-    print("parameters are not enough.\n ./process.py logfile")
+    print("parameters are not enough.\n ./readlog.py logfile [eventlist_path]")
     exit()
 
 if not os.path.exists(sys.argv[1]):
@@ -242,7 +242,7 @@ if not os.path.exists(sys.argv[1]):
     exit()
 
 # 读取事件名称
-eventdict = read_eventlist()
+eventdict = read_eventlist(sys.argv[2] if len(sys.argv) > 2 else "eventlist")
 # 从log文件中获取信息
 eventinfos = readEventInfo(sys.argv[1], eventdict)
 

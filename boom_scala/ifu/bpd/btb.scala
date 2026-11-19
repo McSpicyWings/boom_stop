@@ -70,10 +70,22 @@ class BTBBranchPredictorBank(params: BoomBTBParams = BoomBTBParams())(implicit p
     (f"btb_meta_way$w", nSets, bankWidth * btbMetaSz),
     (f"btb_data_way$w", nSets, bankWidth * btbEntrySz))})).flatten ++ Seq(("ebtb", extendedNSets, vaddrBitsExtended)))
 
-  val s1_req_rbtb  = VecInit(btb.map { b => VecInit(b.read(s0_idx , s0_valid).map(_.asTypeOf(new BTBEntry))) })
-  val s1_req_rmeta = VecInit(meta.map { m => VecInit(m.read(s0_idx, s0_valid).map(_.asTypeOf(new BTBMeta))) })
-  val s1_req_rebtb = ebtb.read(s0_idx, s0_valid)
-  val s1_req_tag   = s1_idx >> log2Ceil(nSets)
+  // Reuse the existing demand port. Defer until the bank has neither a
+  // demand read nor a table write, including the extended-target array.
+  val ferretWrites = Wire(Bool())
+  io.ferretRead.ready := !s0_valid && !doing_reset && !ferretWrites
+  val probe = io.ferretRead.fire()
+  val readIdx = Mux(probe, fetchIdx(bankAlign(io.ferretRead.bits)), s0_idx)
+  val readValid = s0_valid || probe
+  val s1Probe = RegNext(probe, false.B)
+  val probePc = RegEnable(io.ferretRead.bits, probe)
+  val s1_req_rbtb  = VecInit(btb.map { b => VecInit(b.read(readIdx, readValid).map(_.asTypeOf(new BTBEntry))) })
+  val s1_req_rmeta = VecInit(meta.map { m => VecInit(m.read(readIdx, readValid).map(_.asTypeOf(new BTBMeta))) })
+  val s1_req_rebtb = ebtb.read(readIdx, readValid)
+  val s1_req_tag   = RegNext(readIdx) >> log2Ceil(nSets)
+  io.ferretResponse.valid := s1Probe
+  io.ferretResponse.bits.pc := probePc
+  assert(!(s0_valid && probe))
 
   val s1_resp   = Wire(Vec(bankWidth, Valid(UInt(vaddrBitsExtended.W))))
   val s1_is_br  = Wire(Vec(bankWidth, Bool()))
@@ -101,7 +113,14 @@ class BTBBranchPredictorBank(params: BoomBTBParams = BoomBTBParams())(implicit p
 
     io.resp.f2(w) := io.resp_in(0).f2(w)
     io.resp.f3(w) := io.resp_in(0).f3(w)
-    when (RegNext(s1_hits(w))) {
+    io.resp.f2(w).ferretMain.target := RegNext(s1_resp(w))
+    io.resp.f2(w).ferretMain.isBr := RegNext(s1_is_br(w))
+    val shadowSlot = io.ferretResponse.bits.slots(w)
+    shadowSlot.target.valid := s1Probe && s1_hits(w)
+    shadowSlot.target.bits := Mux(entry_btb.extended, s1_req_rebtb,
+      (bankAlign(probePc).asSInt + (w << 1).S + entry_btb.offset).asUInt)
+    shadowSlot.isBr := entry_meta.is_br
+    when (RegNext(s1_hits(w) && !s1Probe)) {
       io.resp.f2(w).predicted_pc := RegNext(s1_resp(w))
       io.resp.f2(w).is_br        := RegNext(s1_is_br(w))
       io.resp.f2(w).is_jal       := RegNext(s1_is_jal(w))
@@ -109,7 +128,7 @@ class BTBBranchPredictorBank(params: BoomBTBParams = BoomBTBParams())(implicit p
         io.resp.f2(w).taken      := true.B
       }
     }
-    when (RegNext(RegNext(s1_hits(w)))) {
+    when (RegNext(RegNext(s1_hits(w) && !s1Probe))) {
       io.resp.f3(w).predicted_pc := RegNext(io.resp.f2(w).predicted_pc)
       io.resp.f3(w).is_br        := RegNext(io.resp.f2(w).is_br)
       io.resp.f3(w).is_jal       := RegNext(io.resp.f2(w).is_jal)
@@ -156,6 +175,8 @@ class BTBBranchPredictorBank(params: BoomBTBParams = BoomBTBParams())(implicit p
      (Fill(bankWidth, s1_update.valid) & s1_update.bits.btb_mispredicts)
     )
   )
+  ferretWrites := s1_update_wmeta_mask.orR || s1_update_wbtb_mask.orR
+
   val s1_update_wmeta_data = Wire(Vec(bankWidth, new BTBMeta))
 
   for (w <- 0 until bankWidth) {

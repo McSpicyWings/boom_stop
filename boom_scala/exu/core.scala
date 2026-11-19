@@ -42,7 +42,7 @@ import freechips.rocketchip.devices.tilelink.{PLICConsts, CLINTConsts}
 import testchipip.{ExtendedTracedInstruction}
 
 import boom.common._
-import boom.ifu.{GlobalHistory, HasBoomFrontendParameters}
+import boom.ifu.{FerretEvents, GlobalHistory, HasBoomFrontendParameters}
 import boom.exu.FUConstants._
 import boom.util._
 
@@ -553,6 +553,14 @@ class BoomCore(usingTrace: Boolean)(implicit p: Parameters) extends BoomModule
     }
   }
 
+  val ferretEventIds = FerretEvents.fpga
+  require(ferretEventIds.distinct.size == ferretEventIds.size && ferretEventIds.forall(_ < 64))
+  def retiredFerret(timely: Boolean): UInt = RegNext(PopCount(VecInit((0 until coreWidth).map { w =>
+    val uop = rob.io.commit.uops(w)
+    rob.io.commit.arch_valids(w) && uop.pred_src =/= CommitPredictionSource.core &&
+      (if (timely) uop.ferretTimely else uop.ferretUseful)
+  })), 0.U)
+
   for (w <- 0 until subECounterNum*16) {
     event_counters.io.event_signals(w) := 0.U
   }
@@ -560,40 +568,26 @@ class BoomCore(usingTrace: Boolean)(implicit p: Parameters) extends BoomModule
 	  when (startCounter) {
 	    event_counters.io.event_signals(0) :=   1.U  //cycles
 	    event_counters.io.event_signals(1) :=  RegNext(PopCount(rob.io.commit.arch_valids.asUInt)) // commit inst
+    for (i <- 0 until FerretEvents.frontendCount) {
+      event_counters.io.event_signals(ferretEventIds(i)) := io.ifu.ferretEvents(i)
+    }
+    event_counters.io.event_signals(ferretEventIds(FerretEvents.frontendCount)) := retiredFerret(false)
+    event_counters.io.event_signals(ferretEventIds(FerretEvents.frontendCount + 1)) := retiredFerret(true)
 
 	    //PerfCounterSupport: compact64-v2 branch-prediction map; E33/E35 now JUMP decode/core
 	    event_counters.io.event_signals(2)  :=  Mux(io.ifu.bpsrc_f1, 1.U, 0.U)                                //npc_from_f1
 	    event_counters.io.event_signals(3)  :=  Mux(io.ifu.bpsrc_f2, 1.U, 0.U)                                //npc_from_f2
 	    event_counters.io.event_signals(4)  :=  Mux(io.ifu.bpsrc_f3, 1.U, 0.U)                                //npc_from_f3
 	    event_counters.io.event_signals(5)  :=  Mux(io.ifu.bpsrc_core, 1.U, 0.U)                              //npc_from_core
-	    event_counters.io.event_signals(6)  :=  PopCount(exe_is_br.asUInt)                                    //execute br number
-	    event_counters.io.event_signals(7)  :=  PopCount(exe_is_jalr.asUInt)                                  //execute jalr number
-	    event_counters.io.event_signals(8)  :=  PopCount(exe_is_ret.asUInt)                                   //execute jalr-ret number
-	    event_counters.io.event_signals(9)  :=  PopCount(exe_is_jalrcall.asUInt)                              //execute jalr-call number
-	    event_counters.io.event_signals(10) :=  Mux(exe_misp_br, 1.U, 0.U)                                    //exe misp br number
-	    event_counters.io.event_signals(11) :=  Mux(exe_misp_jalr, 1.U, 0.U)                                  //exe misp jalr number
-	    event_counters.io.event_signals(12) :=  Mux(exe_misp_ret, 1.U, 0.U)                                   //exe misp jalr-ret number
-	    event_counters.io.event_signals(13) :=  Mux(exe_misp_jalrcall, 1.U, 0.U)                              //exe misp jalr-call number
 	    event_counters.io.event_signals(14) :=  PopCount(com_is_br.asUInt)                                    //commit br number
 	    event_counters.io.event_signals(15) :=  PopCount(com_is_jalr.asUInt)                                  //commit jalr number
-	    event_counters.io.event_signals(16) :=  PopCount(com_is_ret.asUInt)                                   //commit jalr-ret number
-	    event_counters.io.event_signals(17) :=  PopCount(com_is_jalrcall.asUInt)                              //commit jalr-call number
 	    event_counters.io.event_signals(18) :=  PopCount(com_misp_br.asUInt)                                  //com misp br number
 	    event_counters.io.event_signals(19) :=  PopCount(com_misp_jalr.asUInt)                                //com misp jalr number
 	    event_counters.io.event_signals(20) :=  PopCount(com_misp_ret.asUInt)                                 //com misp jalr-ret number
 	    event_counters.io.event_signals(21) :=  PopCount(com_misp_jalrcall.asUInt)                            //com misp jalr-call number
-	    event_counters.io.event_signals(22) :=  io.ifu.bpd_perf.tage_any_hit                                  //tage any-table hit
-	    event_counters.io.event_signals(23) :=  io.ifu.bpd_perf.tage_provider_t0                              //tage provider=t0 (hist=2)
-	    event_counters.io.event_signals(24) :=  io.ifu.bpd_perf.tage_provider_t1                              //tage provider=t1 (hist=4)
-	    event_counters.io.event_signals(25) :=  io.ifu.bpd_perf.tage_provider_t2                              //tage provider=t2 (hist=8)
-	    event_counters.io.event_signals(26) :=  io.ifu.bpd_perf.tage_provider_t3                              //tage provider=t3 (hist=16)
-	    event_counters.io.event_signals(27) :=  io.ifu.bpd_perf.tage_provider_t4                              //tage provider=t4 (hist=32)
-	    event_counters.io.event_signals(28) :=  io.ifu.bpd_perf.tage_provider_t5                              //tage provider=t5 (hist=64)
 	    event_counters.io.event_signals(29) :=  Mux(io.ifu.bpd_perf.tage_alloc_attempt, 1.U, 0.U)             //tage alloc attempts
 	    event_counters.io.event_signals(30) :=  Mux(io.ifu.bpd_perf.tage_alloc_success, 1.U, 0.U)             //tage alloc success
 	    event_counters.io.event_signals(31) :=  Mux(io.ifu.bpd_perf.tage_alloc_fail,    1.U, 0.U)             //tage alloc fail
-	    event_counters.io.event_signals(32) :=  io.ifu.bpd_perf.loop_override_cnt                             //loop high-conf override count
-	    event_counters.io.event_signals(34) :=  Mux(io.ifu.bpd_perf.loop_pcnt_modified, 1.U, 0.U)             //loop p_cnt modified
     // Successful TAGE allocations by table index (shortest to longest history).
     event_counters.io.event_signals(36) := Mux(io.ifu.bpd_perf.tage_alloc_t0, 1.U, 0.U)
     event_counters.io.event_signals(37) := Mux(io.ifu.bpd_perf.tage_alloc_t1, 1.U, 0.U)
@@ -609,7 +603,7 @@ class BoomCore(usingTrace: Boolean)(implicit p: Parameters) extends BoomModule
     event_counters.io.event_signals(47) := Mux(io.ifu.bpd_perf.tage_alloc_fail_provider_t4, 1.U, 0.U)
 
     // 0: all instructions, 1: BR, 2: JUMP (JAL + JALR).
-    for (kind <- 0 until 3; source <- 0 until CommitPredictionSource.count) {
+    for (kind <- 1 until 3; source <- 0 until CommitPredictionSource.count) {
       val eventId = if (kind == 2 && source == 4) 33
                     else if (kind == 2 && source == 5) 35
                     else 48 + kind * CommitPredictionSource.count + source

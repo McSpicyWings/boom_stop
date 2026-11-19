@@ -1,5 +1,7 @@
 # 提交时的逐指令预测来源计数
 
+> 本文记录历史 `compact64-v2` 编号。新 FPGA 版使用 [ferret64-v1](btb-ferret-fpga.md)，保留 BR/JUMP 来源直方图并回收 ALL 来源槽位。解析旧日志时使用其映射快照或原有 `log_process/read_counter/eventlist`。新板卡日志可显式使用 `docs/eventlist.ferret64-v1`。
+
 ## 统计口径
 
 每条实际提交的指令按它自身的下一 PC 预测归属分到一个来源。它不是“哪次重定向把这条指令取进来”：否则 core 重定向后的普通指令也会被误算为 core 贡献。原有 event2–5 的 F0 NPC 来源口径保持不变。

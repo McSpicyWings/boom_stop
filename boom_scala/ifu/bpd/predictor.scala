@@ -46,6 +46,7 @@ class BpdPerfBundle(implicit p: Parameters) extends BoomBundle()(p) {
 class BranchPrediction(implicit p: Parameters) extends BoomBundle()(p)
 {
   val pred_src = UInt(CommitPredictionSource.width.W)
+  val ferretMain = new FerretBtbSlot
 
   // If this is a branch, do we take it?
   val taken           = Bool()
@@ -186,12 +187,16 @@ abstract class BranchPredictorBank(implicit p: Parameters) extends BoomModule()(
 
     val update = Input(Valid(new BranchPredictionBankUpdate))
 
+    val ferretRead = Flipped(Decoupled(UInt(vaddrBitsExtended.W)))
+    val ferretResponse = Output(Valid(new FerretBtbRead))
     val perf = Output(new BpdPerfBundle)
   })
   io.resp := io.resp_in(0)
 
   io.f3_meta := 0.U
   io.perf := 0.U.asTypeOf(new BpdPerfBundle)
+  io.ferretRead.ready := false.B
+  io.ferretResponse := 0.U.asTypeOf(io.ferretResponse)
 
   val s0_idx       = fetchIdx(io.f0_pc)
   val s1_idx       = RegNext(s0_idx)
@@ -244,6 +249,9 @@ class BranchPredictor(implicit p: Parameters) extends BoomModule()(p)
     // Update
     val update = Input(Valid(new BranchPredictionUpdate))
 
+    val ferretRead = Flipped(Decoupled(UInt(vaddrBitsExtended.W)))
+    val ferretResponse = Output(Valid(new FerretBtbRead))
+    val ferretIdleBanks = Output(UInt(log2Ceil(nBanks + 1).W))
     val perf = Output(new BpdPerfBundle)
   })
 
@@ -260,6 +268,20 @@ class BranchPredictor(implicit p: Parameters) extends BoomModule()(p)
   })
   bpdStr.append(BoomCoreStringPrefix(f"Total bpd size: ${total_memsize / 1024} KB\n"))
   override def toString: String = bpdStr.toString
+
+  // A seed reads the first physical bank of its fetch address.
+  val ferretBank = bank(io.ferretRead.bits)
+  for ((predictor, i) <- banked_predictors.zipWithIndex) {
+    predictor.io.ferretRead.valid := io.ferretRead.valid && ferretBank === i.U
+    predictor.io.ferretRead.bits := io.ferretRead.bits
+  }
+  io.ferretRead.ready := banked_predictors.zipWithIndex.map { case (predictor, i) =>
+    predictor.io.ferretRead.ready && ferretBank === i.U
+  }.reduce(_ || _)
+  io.ferretIdleBanks := PopCount(VecInit(banked_predictors.map(_.io.ferretRead.ready)))
+  val ferretResponses = banked_predictors.map(_.io.ferretResponse)
+  io.ferretResponse.valid := ferretResponses.map(_.valid).reduce(_ || _)
+  io.ferretResponse.bits := Mux1H(ferretResponses.map(r => r.valid -> r.bits))
 
   val banked_lhist_providers = Seq.fill(nBanks) { Module(if (localHistoryNSets > 0) new LocalBranchPredictorBank else new NullLocalBranchPredictorBank) }
 

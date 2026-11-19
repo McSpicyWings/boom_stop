@@ -44,6 +44,17 @@ class ComposedBranchPredictorBank(implicit p: Parameters) extends BranchPredicto
   }
 
 
+  val ferretMainBanks = components.collect { case btb: BTBBranchPredictorBank => btb }
+  require(ferretMainBanks.size <= 1)
+  for (c <- components) {
+    c.io.ferretRead.valid := false.B
+    c.io.ferretRead.bits := 0.U
+  }
+  for (main <- ferretMainBanks) {
+    main.io.ferretRead <> io.ferretRead
+    io.ferretResponse := main.io.ferretResponse
+  }
+
   var metas = 0.U(1.W)
   var meta_sz = 0
   for (c <- components) {

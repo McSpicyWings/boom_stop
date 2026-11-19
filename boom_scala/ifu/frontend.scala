@@ -30,6 +30,7 @@ import boom.util._
 
 
 class FrontendResp(implicit p: Parameters) extends BoomBundle()(p) {
+  val ferret = new FerretFetchSnapshot
   val pc = UInt(vaddrBitsExtended.W)  // ID stage PC
   val data = UInt((fetchWidth * coreInstBits).W)
   val mask = UInt(fetchWidth.W)
@@ -202,6 +203,8 @@ trait HasBoomFrontendParameters extends HasL1ICacheParameters
 class FetchBundle(implicit p: Parameters) extends BoomBundle
   with HasBoomFrontendParameters
 {
+  val ferretUseful = UInt(fetchWidth.W)
+  val ferretTimely = UInt(fetchWidth.W)
   val pc            = UInt(vaddrBitsExtended.W)
   val next_pc       = UInt(vaddrBitsExtended.W)
   val edge_inst     = Vec(nBanks, Bool()) // True if 1st instruction in this bundle is pc - 2
@@ -298,6 +301,7 @@ class BoomFrontendIO(implicit p: Parameters) extends BoomBundle
   val bpsrc_f3 = Input(Bool())
   val bpsrc_core = Input(Bool())
   val bpd_perf = Input(new BpdPerfBundle)
+  val ferretEvents = Input(Vec(FerretEvents.frontendCount, UInt(2.W)))
 
 }
 
@@ -346,6 +350,9 @@ class BoomFrontendModule(outer: BoomFrontend) extends LazyModuleImp(outer)
   val bpd = Module(new BranchPredictor)
   bpd.io.f3_fire := false.B
   val ras = Module(new BoomRAS)
+  val ferret = Module(new FerretObserver)
+  bpd.io.ferretRead <> ferret.io.read
+  ferret.io.response := bpd.io.ferretResponse
 
   val icache = outer.icache.module
   icache.io.invalidate := io.cpu.flush_icache
@@ -417,6 +424,8 @@ class BoomFrontendModule(outer: BoomFrontend) extends LazyModuleImp(outer)
   val s1_tlb_resp = Mux(s1_is_replay, RegNext(s0_replay_resp), tlb.io.resp)
   val s1_ppc  = Mux(s1_is_replay, RegNext(s0_replay_ppc), tlb.io.resp.paddr)
   val s1_bpd_resp = bpd.io.resp.f1
+  ferret.io.lookup.valid := s1_valid
+  ferret.io.lookup.bits := s1_vpc
 
   icache.io.s1_paddr := s1_ppc
   icache.io.s1_kill  := tlb.io.resp.miss || f1_clear
@@ -558,6 +567,18 @@ class BoomFrontendModule(outer: BoomFrontend) extends LazyModuleImp(outer)
   f3.io.enq.bits.xcpt := s2_tlb_resp
   f3.io.enq.bits.fsrc := s2_fsrc
   f3.io.enq.bits.tsrc := s2_tsrc
+  val ferretSnapshot = f3.io.enq.bits.ferret
+  ferretSnapshot.fast := RegNext(VecInit(s1_bpd_resp.preds.map(_.predicted_pc)))
+  ferretSnapshot.main := VecInit(f2_bpd_resp.preds.map(_.ferretMain))
+  ferretSnapshot.prefetched := RegNext(ferret.io.slots)
+  ferretSnapshot.pendingMatch := RegNext(ferret.io.pendingMatch, false.B)
+  ferretSnapshot.replay := s2_is_replay
+  ferretSnapshot.f1Sequential := !RegNext(f1_do_redirect, false.B)
+  ferretSnapshot.f2Resteer := s1_valid && f2_do_redirect &&
+    s1_vpc === nextFetch(s2_vpc) && s1_vpc =/= f2_predicted_target &&
+    f2_bpd_resp.preds(f2_redirect_idx).ferretMain.target.bits === f2_predicted_target && s0_valid && !s0_is_replay &&
+    s0_tsrc === BSRC_2 && s0_vpc === f2_predicted_target
+  ferretSnapshot.f2Index := f2_redirect_idx
 
   // RAS takes a cycle to read
   val ras_read_idx = RegInit(0.U(log2Ceil(nRasEntries).W))
@@ -825,6 +846,57 @@ class BoomFrontendModule(outer: BoomFrontend) extends LazyModuleImp(outer)
     f3_fetch_bundle.pred_src(i) := Mux(!isCfi, CommitPredictionSource.sequential,
       Mux(corrected, CommitPredictionSource.decodeRas, pred.pred_src))
   }
+
+  // Classify the oldest redirect chosen by F3, with the F2 enqueued packet
+  // carrying the exact upstream lookup and arbitration observations.
+  val observed = f3.io.deq.fire() && f3_bpd_resp.io.deq.valid && !f3_clear &&
+    !f3_fetch_bundle.xcpt_pf_if && !f3_fetch_bundle.xcpt_ae_if && useBPD.B
+  val chosen = f3_fetch_bundle.cfi_idx.bits
+  val directBr = f3_fetch_bundle.cfi_type === CFI_BR
+  val directJal = f3_fetch_bundle.cfi_type === CFI_JAL
+  val directTaken = observed && f3_fetch_bundle.cfi_idx.valid && (directBr || directJal)
+  val snapshot = f3_imemresp.ferret
+  val decodedTarget = f3_targs(chosen)
+  val fast = snapshot.fast(chosen)
+  val main = snapshot.main(chosen)
+  val fastMiss = directTaken && !fast.valid
+  val fastWrong = directTaken && fast.valid && fast.bits =/= decodedTarget
+  val mainCorrect = main.target.valid && main.target.bits === decodedTarget && main.isBr === directBr
+  val recovered = fastMiss && mainCorrect
+  val useful = recovered && !snapshot.replay && snapshot.f1Sequential &&
+    snapshot.f2Resteer && snapshot.f2Index === chosen
+  val prefetched = snapshot.prefetched(chosen % bankWidth.U)
+  val prefetchedSlot = chosen < bankWidth.U && prefetched.target.valid
+  val timely = useful && prefetchedSlot && prefetched.target.bits === decodedTarget &&
+    prefetched.isBr === directBr
+
+  val previousUseful = RegInit(false.B)
+  val previousNext = Reg(UInt(vaddrBitsExtended.W))
+  when (f3_clear) {
+    previousUseful := false.B
+  } .elsewhen (observed) {
+    previousUseful := useful
+    previousNext := f3_predicted_target
+  }
+  val chain = useful && previousUseful && previousNext === f3_imemresp.pc
+
+  val callSeed = observed && f3_fetch_bundle.cfi_idx.valid && f3_fetch_bundle.cfi_is_call
+  val loopSeed = directTaken && directBr && decodedTarget < ras.io.write_addr
+  ferret.io.seed.valid := callSeed || loopSeed
+  // Existing RAS address calculation accounts for RVC and edge instructions.
+  ferret.io.seed.bits := ras.io.write_addr
+  f3_fetch_bundle.ferretUseful := Mux(useful, UIntToOH(chosen, fetchWidth), 0.U)
+  f3_fetch_bundle.ferretTimely := Mux(timely, UIntToOH(chosen, fetchWidth), 0.U)
+
+  io.cpu.ferretEvents := VecInit(Seq(
+    directTaken, fastMiss, fastWrong, recovered,
+    fastMiss && !main.target.valid, fastMiss && main.target.valid && !mainCorrect,
+    useful, recovered && snapshot.replay, useful && directJal, chain,
+    callSeed, loopSeed, ferret.io.drop, ferret.io.read.valid,
+    ferret.io.read.fire(), ferret.io.fill, timely, timely && directJal,
+    useful && !timely && snapshot.pendingMatch,
+    useful && prefetchedSlot && !timely, ferret.io.unusedEviction, observed
+  ).map(flag => Cat(0.U(1.W), flag)) :+ bpd.io.ferretIdleBanks.pad(2))
 
   f3_fetch_bundle.next_pc       := f3_predicted_target
   val f3_predicted_ghist = f3_fetch_bundle.ghist.update(

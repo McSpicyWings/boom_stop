@@ -86,6 +86,16 @@ class BTBBranchPredictorBank(params: BoomBTBParams = BoomBTBParams())(implicit p
   io.ferretResponse.valid := s1Probe
   io.ferretResponse.bits.pc := probePc
   assert(!(s0_valid && probe))
+  if (p(FerretSimulationKey)) {
+    val request = io.ferretRead
+    val writes = ferretWrites
+    val fire = probe
+    val cycle = FerretSimulation.cycleCounter()
+    val trace = FerretSimulation.traceEnabled
+    when (trace && request.valid) {
+      printf(p"FERRET event=port cycle=${cycle} pc=0x${Hexadecimal(request.bits)} demand=${s0_valid} write=${writes} init=${doing_reset} issue=${fire}\n")
+    }
+  }
 
   val s1_resp   = Wire(Vec(bankWidth, Valid(UInt(vaddrBitsExtended.W))))
   val s1_is_br  = Wire(Vec(bankWidth, Bool()))

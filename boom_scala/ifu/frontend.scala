@@ -30,6 +30,7 @@ import boom.util._
 
 
 class FrontendResp(implicit p: Parameters) extends BoomBundle()(p) {
+  val ferretSimF1Cycle = if (p(FerretSimulationKey)) Some(UInt(32.W)) else None
   val ferret = new FerretFetchSnapshot
   val pc = UInt(vaddrBitsExtended.W)  // ID stage PC
   val data = UInt((fetchWidth * coreInstBits).W)
@@ -350,6 +351,7 @@ class BoomFrontendModule(outer: BoomFrontend) extends LazyModuleImp(outer)
   val bpd = Module(new BranchPredictor)
   bpd.io.f3_fire := false.B
   val ras = Module(new BoomRAS)
+  private val ferretSim = if (p(FerretSimulationKey)) Some(new FerretSimulation) else None
   val ferret = Module(new FerretObserver)
   bpd.io.ferretRead <> ferret.io.read
   ferret.io.response := bpd.io.ferretResponse
@@ -453,6 +455,11 @@ class BoomFrontendModule(outer: BoomFrontend) extends LazyModuleImp(outer)
     false.B,
     false.B)
 
+  private val ferretF1 = ferretSim.map { sim =>
+    sim.candidate(s1_valid && useBPD.B && !s1_is_replay && !f1_do_redirect,
+      f1_mask, s1_bpd_resp.preds, ferret.io.slots)
+  }
+
   when (s1_valid && !s1_tlb_miss) {
     // Stop fetching on fault
     s0_valid     := !(s1_tlb_resp.ae.inst || s1_tlb_resp.pf.inst)
@@ -460,6 +467,14 @@ class BoomFrontendModule(outer: BoomFrontend) extends LazyModuleImp(outer)
     s0_vpc       := f1_predicted_target
     s0_ghist     := f1_predicted_ghist
     s0_is_replay := false.B
+    ferretF1.foreach { case (candidate, slot, target) =>
+      when (ferretSim.get.enableF1 && candidate) {
+        s0_vpc := target
+        s0_ghist := s1_ghist.update(
+          s1_bpd_resp.preds.map(p => p.is_br && p.predicted_pc.valid).asUInt & f1_mask,
+          true.B, false.B, slot, true.B, s1_vpc, false.B, false.B)
+      }
+    }
   }
 
   io.cpu.itlb_valid_access := tlb.io.req.valid
@@ -567,6 +582,7 @@ class BoomFrontendModule(outer: BoomFrontend) extends LazyModuleImp(outer)
   f3.io.enq.bits.xcpt := s2_tlb_resp
   f3.io.enq.bits.fsrc := s2_fsrc
   f3.io.enq.bits.tsrc := s2_tsrc
+  ferretSim.foreach { sim => f3.io.enq.bits.ferretSimF1Cycle.get := RegNext(sim.cycle) }
   val ferretSnapshot = f3.io.enq.bits.ferret
   ferretSnapshot.fast := RegNext(VecInit(s1_bpd_resp.preds.map(_.predicted_pc)))
   ferretSnapshot.main := VecInit(f2_bpd_resp.preds.map(_.ferretMain))
@@ -1092,6 +1108,31 @@ class BoomFrontendModule(outer: BoomFrontend) extends LazyModuleImp(outer)
 
   ftq.io.debug_ftq_idx := io.cpu.debug_ftq_idx
   io.cpu.debug_fetch_pc := ftq.io.debug_fetch_pc
+
+  ferretSim.foreach { sim =>
+    sim.traceQueue(ferret)
+    val (candidate, slot, target) = ferretF1.get
+    val f1Won = s0_valid && !s0_is_replay && !f1_clear && s0_tsrc === BSRC_1
+    val used = sim.enableF1 && candidate && f1Won && s0_vpc === target
+    when (sim.trace && s1_valid && !s1_is_replay && (candidate || ferret.io.pendingMatch)) {
+      printf(p"FERRET event=f1 cycle=${sim.cycle} pc=0x${Hexadecimal(s1_vpc)} " +
+        p"hit=${candidate} slot=${Mux(candidate, slot, 0.U)} target=0x${Hexadecimal(Mux(candidate, target, 0.U))} " +
+        p"pending=${ferret.io.pendingMatch} won=${f1Won} used=${used} next=0x${Hexadecimal(s0_vpc)}\n")
+    }
+
+    val f2Main = f2_bpd_resp.preds(f2_redirect_idx).ferretMain
+    val f2Won = s0_valid && !s0_is_replay && f1_clear && s0_tsrc === BSRC_2 &&
+      s0_vpc === f2_predicted_target
+    when (sim.trace && f3.io.enq.fire() && !s2_is_replay && f2_do_redirect &&
+      f2Main.target.valid && !f2Main.isBr && f2Main.target.bits === f2_predicted_target) {
+      printf(p"FERRET event=f2 cycle=${sim.cycle} f1=${f3.io.enq.bits.ferretSimF1Cycle.get} " +
+        p"pc=0x${Hexadecimal(s2_vpc)} slot=${f2_redirect_idx} target=0x${Hexadecimal(f2_predicted_target)} won=${f2Won}\n")
+    }
+    when (sim.trace && observed && f3_fetch_bundle.cfi_idx.valid && directJal) {
+      printf(p"FERRET event=jal cycle=${sim.cycle} f1=${f3_imemresp.ferretSimF1Cycle.get} " +
+        p"pc=0x${Hexadecimal(f3_imemresp.pc)} slot=${chosen} target=0x${Hexadecimal(decodedTarget)}\n")
+    }
+  }
 
 
   override def toString: String =

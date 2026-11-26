@@ -145,6 +145,24 @@ class BranchPredictionBankUpdate(implicit p: Parameters) extends BoomBundle()(p)
   val meta             = UInt(bpdMaxMetaLength.W)
 }
 
+class FAuBTBEarlyUpdate(implicit p: Parameters) extends BoomBundle()(p)
+  with HasBoomFrontendParameters {
+  val pc = UInt(vaddrBitsExtended.W)
+  val slot_mask = UInt(fetchWidth.W)
+  val br_mask = UInt(fetchWidth.W)
+  val taken_mask = UInt(fetchWidth.W)
+  val targets = Vec(fetchWidth, UInt(vaddrBitsExtended.W))
+}
+
+class FAuBTBEarlyBankUpdate(implicit p: Parameters) extends BoomBundle()(p)
+  with HasBoomFrontendParameters {
+  val pc = UInt(vaddrBitsExtended.W)
+  val slot_mask = UInt(bankWidth.W)
+  val br_mask = UInt(bankWidth.W)
+  val taken_mask = UInt(bankWidth.W)
+  val targets = Vec(bankWidth, UInt(vaddrBitsExtended.W))
+}
+
 class BranchPredictionRequest(implicit p: Parameters) extends BoomBundle()(p)
 {
   val pc    = UInt(vaddrBitsExtended.W)
@@ -185,6 +203,8 @@ abstract class BranchPredictorBank(implicit p: Parameters) extends BoomModule()(
     val f3_fire = Input(Bool())
 
     val update = Input(Valid(new BranchPredictionBankUpdate))
+    val faubtb_early_update = Input(Valid(new FAuBTBEarlyBankUpdate))
+    val faubtb_early_kill = Input(Bool())
 
     val perf = Output(new BpdPerfBundle)
   })
@@ -243,6 +263,8 @@ class BranchPredictor(implicit p: Parameters) extends BoomModule()(p)
 
     // Update
     val update = Input(Valid(new BranchPredictionUpdate))
+    val faubtb_early_update = Input(Valid(new FAuBTBEarlyUpdate))
+    val faubtb_early_kill = Input(Bool())
 
     val perf = Output(new BpdPerfBundle)
   })
@@ -260,6 +282,28 @@ class BranchPredictor(implicit p: Parameters) extends BoomModule()(p)
   })
   bpdStr.append(BoomCoreStringPrefix(f"Total bpd size: ${total_memsize / 1024} KB\n"))
   override def toString: String = bpdStr.toString
+
+  val early = io.faubtb_early_update.bits
+  val firstBankPC = bankAlign(early.pc)
+  for ((predictor, i) <- banked_predictors.zipWithIndex) {
+    val update = predictor.io.faubtb_early_update
+    val second = bank(early.pc) =/= i.U
+    def bankSlice(mask: UInt): UInt = {
+      val first = mask(bankWidth - 1, 0)
+      if (nBanks == 1) first else Mux(second, mask(fetchWidth - 1, bankWidth), first)
+    }
+    update.bits.pc := (if (nBanks == 1) firstBankPC else Mux(second, nextBank(early.pc), firstBankPC))
+    update.bits.slot_mask := bankSlice(early.slot_mask)
+    update.bits.br_mask := bankSlice(early.br_mask)
+    update.bits.taken_mask := bankSlice(early.taken_mask)
+    for (slot <- 0 until bankWidth) {
+      update.bits.targets(slot) := (if (nBanks == 1) early.targets(slot)
+        else Mux(second, early.targets(bankWidth + slot), early.targets(slot)))
+    }
+    val bankPresent = if (nBanks == 1) true.B else !second || !mayNotBeDualBanked(early.pc)
+    update.valid := io.faubtb_early_update.valid && bankPresent && update.bits.slot_mask.orR
+    predictor.io.faubtb_early_kill := io.faubtb_early_kill
+  }
 
   val banked_lhist_providers = Seq.fill(nBanks) { Module(if (localHistoryNSets > 0) new LocalBranchPredictorBank else new NullLocalBranchPredictorBank) }
 

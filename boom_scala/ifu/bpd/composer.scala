@@ -17,6 +17,21 @@ class ComposedBranchPredictorBank(implicit p: Parameters) extends BranchPredicto
   val (components, resp) = getBPDComponents(io.resp_in(0), p)
   io.resp := resp
 
+  if (enableFAuBTBEarlyUpdate) {
+    require(components.count(_.isInstanceOf[FAMicroBTBBranchPredictorBank]) == 1,
+      "FAuBTB early update requires one FAuBTB per predictor bank")
+  }
+  for (component <- components) {
+    component match {
+      case faubtb: FAMicroBTBBranchPredictorBank =>
+        faubtb.io.faubtb_early_update := io.faubtb_early_update
+        faubtb.io.faubtb_early_kill := io.faubtb_early_kill
+      case _ =>
+        component.io.faubtb_early_update := 0.U.asTypeOf(component.io.faubtb_early_update)
+        component.io.faubtb_early_kill := false.B
+    }
+  }
+
   // Track each slot independently through the aligned predictor stages.
   // F1 hit is the initial provider (including a not-taken hit); later stages
   // receive credit only when the effective redirect decision changes.

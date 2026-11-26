@@ -58,6 +58,9 @@ case class BoomCoreParams(
 
   /* branch prediction */
   enableBranchPrediction: Boolean = true,
+  enableFAuBTBEarlyJAL: Boolean = false,
+  enableFAuBTBEarlyBRTarget: Boolean = false,
+  enableFAuBTBEarlyBRDir: Boolean = false,
   branchPredictor: Function2[BranchPredictionBankResponse, Parameters, Tuple2[Seq[BranchPredictorBank], BranchPredictionBankResponse]] = ((resp_in: BranchPredictionBankResponse, p: Parameters) => (Nil, resp_in)),
   globalHistoryLength: Int = 64,
   localHistoryLength: Int = 32,
@@ -106,6 +109,9 @@ case class BoomCoreParams(
   val haveFSDirty = true
   val pmpGranularity: Int = 4
   val instBits: Int = 16
+  require(!enableFAuBTBEarlyBRDir || enableFAuBTBEarlyBRTarget,
+    "FAuBTB early branch direction requires early branch targets")
+
   val lrscCycles: Int = 80 // worst case is 14 mispredicted branches + slop
   val retireWidth = decodeWidth
   val jumpInFrontend: Boolean = false // unused in boom
@@ -222,6 +228,10 @@ trait HasBoomCoreParameters extends freechips.rocketchip.tile.HasCoreParameters
 
   //************************************
   // Branch Prediction
+  val enableFAuBTBEarlyJAL = boomParams.enableFAuBTBEarlyJAL
+  val enableFAuBTBEarlyBRTarget = boomParams.enableFAuBTBEarlyBRTarget
+  val enableFAuBTBEarlyBRDir = boomParams.enableFAuBTBEarlyBRDir
+  val enableFAuBTBEarlyUpdate = enableFAuBTBEarlyJAL || enableFAuBTBEarlyBRTarget
   val globalHistoryLength = boomParams.globalHistoryLength
   val localHistoryLength = boomParams.localHistoryLength
   val localHistoryNSets = boomParams.localHistoryNSets

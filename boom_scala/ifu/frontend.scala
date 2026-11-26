@@ -946,6 +946,35 @@ class BoomFrontendModule(outer: BoomFrontend) extends LazyModuleImp(outer)
   f4.io.enq.bits  := f3_fetch_bundle
   f4.io.deq.ready := fb.io.enq.ready && ftq.io.enq.ready && !f4_delay
 
+  bpd.io.faubtb_early_kill := f3_clear
+  val earlyFAuBTB = bpd.io.faubtb_early_update
+  earlyFAuBTB := 0.U.asTypeOf(earlyFAuBTB)
+  if (useBPD && enableFAuBTBEarlyUpdate) {
+    val prediction = f3_bpd_resp.io.deq
+    val packetAccepted = f4.io.enq.fire() && prediction.valid && !f3_clear &&
+      !f3_fetch_bundle.xcpt_pf_if && !f3_fetch_bundle.xcpt_ae_if
+    val slots = Wire(Vec(fetchWidth, Bool()))
+    val branches = Wire(Vec(fetchWidth, Bool()))
+    val taken = Wire(Vec(fetchWidth, Bool()))
+    for (i <- 0 until fetchWidth) {
+      val active = f3_mask(i) && !f3_shadowed_mask(i) &&
+        !f3_fetch_bundle.bp_debug_if_oh(i) && !f3_fetch_bundle.bp_xcpt_if_oh(i)
+      val jal = active && enableFAuBTBEarlyJAL.B && f3_cfi_types(i) === CFI_JAL
+      branches(i) := active && enableFAuBTBEarlyBRTarget.B && f3_cfi_types(i) === CFI_BR
+      slots(i) := jal || branches(i)
+      taken(i) := jal || (branches(i) && prediction.bits.preds(i).taken)
+    }
+    earlyFAuBTB.valid := packetAccepted && slots.asUInt.orR
+    earlyFAuBTB.bits.pc := f3_fetch_bundle.pc
+    earlyFAuBTB.bits.slot_mask := slots.asUInt
+    earlyFAuBTB.bits.br_mask := branches.asUInt
+    earlyFAuBTB.bits.taken_mask := taken.asUInt
+    earlyFAuBTB.bits.targets := f3_targs
+    when (earlyFAuBTB.valid) {
+      assert(prediction.bits.pc === f3_fetch_bundle.pc, "FAuBTB early update packet mismatch")
+    }
+  }
+
   fb.io.enq.valid := f4.io.deq.valid && ftq.io.enq.ready && !f4_delay
   fb.io.enq.bits  := f4.io.deq.bits
   fb.io.enq.bits.ftq_idx := ftq.io.enq_idx
